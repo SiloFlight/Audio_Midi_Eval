@@ -1,0 +1,6 @@
+librosa
+tensorflow
+numpy
+jupyter
+pretty_midi
+mirdata
