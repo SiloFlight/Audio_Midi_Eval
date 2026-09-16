@@ -6,11 +6,17 @@ from numpy.typing import NDArray
 from pretty_midi import PrettyMIDI
 from dataclasses import dataclass
 
+AudioWaveform = NDArray[np.float32]
 
 class TrackType(str, Enum):
     MAESTRO = "MAESTRO"
     MAPS = "MAPS"
     Synthetic = "Synthetic"
+
+class InputTypes(str,Enum):
+    Waveform = "Waveform"
+    CQT = "CQT"
+    HCQT = "HCQT"
 
 @dataclass
 class TrackInfo:
@@ -24,5 +30,5 @@ class TrackInfo:
 @dataclass
 class RawTrack:
     track_info: TrackInfo
-    audio: NDArray[np.float32]
+    audio: AudioWaveform
     midi: PrettyMIDI
