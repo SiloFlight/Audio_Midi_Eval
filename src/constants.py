@@ -22,7 +22,7 @@ HOP_LENGTH = int(DEFAULT_SAMPLE_RATE / 30) # Ideally 30 bins per second.
 
 
 #HCQT Params
-HARMONICS = sorted([.5,1,2,3])
+HARMONICS = sorted([.5,1,2])
 
 #Derived Constants
 NOTE_BINS = max(0,MAX_NOTE-MIN_NOTE+1)
