@@ -4,6 +4,7 @@ from warnings import warn
 
 import librosa
 import pretty_midi
+pretty_midi.pretty_midi.MAX_TICK = 1e10 # MAX_TICK alteration to allow loading of maps files
 
 from src.constants import DEFAULT_SAMPLE_RATE, MAPS_Folder
 from src.schema import RawTrack, TrackInfo, TrackType
