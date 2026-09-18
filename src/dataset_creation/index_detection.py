@@ -26,9 +26,11 @@ def get_onset_offset_indices(raw_track : RawTrack, accepted_duration : float, sa
 
     return indices
 
-def get_negative_indices(raw_track : RawTrack, accepted_duration : float, sample_per_track = 30) -> set[int]:
+def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negative_percentage : float = 0.1) -> set[int]:
     event_times = _get_event_times(raw_track.midi)
     track_length = len(raw_track.audio)
+
+    num_notes = len(event_times) // 2  # one onset + one offset per note
 
     # Mark every sample within accepted_duration of any onset/offset as excluded,
     # leaving a boolean mask of indices that are genuinely far from every event.
@@ -40,6 +42,9 @@ def get_negative_indices(raw_track : RawTrack, accepted_duration : float, sample
 
     negative_pool = np.flatnonzero(negative_mask)
 
+    # Scales with the track's own note count instead of a flat constant, so dense
+    # tracks (which also produce far more positives) get proportionally more negatives.
+    sample_per_track = round(negative_percentage * num_notes)
     sample_count = min(sample_per_track, len(negative_pool))
     sampled_indices = np.random.choice(negative_pool, size=sample_count, replace=False)
 
