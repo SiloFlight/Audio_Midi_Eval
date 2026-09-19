@@ -3,6 +3,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
+from src.audio_processing import compute_cqt, compute_hcqt
 from src.constants import NOTE_BINS
 from src.schema import InputTypes, TrackInfo
 from src.data.misc import load_track_info
@@ -23,6 +24,17 @@ _INPUT_DIMS_FNS = {
     InputTypes.HCQT: hcqt.compute_input_dims,
 }
 
+# Builds whatever each input type needs once per track, before looping over that
+# track's indices - for CQT/HCQT this is the expensive part (the full-track
+# transform), computed once instead of once per index. input_dims is this
+# input_type's compute_input_dims(audio_duration) result, computed once per
+# dataset build (see _build_base_dataset) since it doesn't vary per track.
+_TRACK_CONTEXT_FNS = {
+    InputTypes.Waveform: lambda raw_track, input_dims: raw_track,
+    InputTypes.CQT: lambda raw_track, input_dims: (compute_cqt(raw_track.audio), input_dims[1]),
+    InputTypes.HCQT: lambda raw_track, input_dims: (compute_hcqt(raw_track.audio), input_dims[1]),
+}
+
 SHUFFLE_BUFFER_SIZE = 10_000
 
 def _as_shape(dims) -> tuple[int, ...]:
@@ -37,23 +49,26 @@ def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo]]:
 
     return train_tracks, test_tracks
 
-def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, rng : np.random.Generator):
+def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, rng : np.random.Generator):
     feature_fn = _FEATURE_FNS[input_type]
+    context_fn = _TRACK_CONTEXT_FNS[input_type]
 
     for track_info in track_infos:
         raw_track = load_track_info(track_info)
+        context = context_fn(raw_track, input_dims)
 
         indices = get_potential_indices(raw_track, accepted_duration, rng=rng)
         labels = create_labels(raw_track, indices, accepted_duration)
 
         for index, label in zip(indices, labels):
-            yield feature_fn(raw_track, index, audio_duration), label
+            yield feature_fn(context, index, audio_duration), label
 
 def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int) -> tf.data.Dataset:
     shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
     rng = np.random.default_rng(seed)
 
-    feature_shape = _as_shape(_INPUT_DIMS_FNS[input_type](audio_duration))
+    input_dims = _INPUT_DIMS_FNS[input_type](audio_duration)
+    feature_shape = _as_shape(input_dims)
 
     output_signature = (
         tf.TensorSpec(shape=feature_shape, dtype=tf.float32),
@@ -61,7 +76,7 @@ def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, 
     )
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, rng),
+        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, input_dims, rng),
         output_signature=output_signature,
     )
 

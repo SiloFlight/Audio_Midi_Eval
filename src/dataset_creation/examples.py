@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.audio_processing import compute_window, compute_cqt, compute_hcqt
+from src.audio_processing import compute_window, slice_time_window
 from src.constants import DEFAULT_SAMPLE_RATE, MIN_NOTE, MAX_NOTE, NOTE_BINS
 from src.schema import RawTrack
 
@@ -58,16 +58,21 @@ def create_labels(raw_track : RawTrack, indices : list[int], accepted_duration :
 
     return labels
 
-def create_waveform_features(raw_track : RawTrack, index : int, audio_duration : int) -> np.ndarray:
-    return compute_window(raw_track.audio, index, audio_duration)
+def create_waveform_features(context : RawTrack, index : int, audio_duration : int) -> np.ndarray:
+    # context is the RawTrack itself - unlike CQT/HCQT there's no expensive
+    # per-track precomputation to do, compute_window is already cheap.
+    return compute_window(context.audio, index, audio_duration)
 
-def create_cqt_features(raw_track : RawTrack, index : int, audio_duration : int) -> np.ndarray:
-    window = compute_window(raw_track.audio, index, audio_duration)
-    features = compute_cqt(window)
+def create_cqt_features(context : tuple[np.ndarray, int], index : int, audio_duration : int) -> np.ndarray:
+    # context is (full-track CQT, time_frames), built once per track - see
+    # datasets.py's _TRACK_CONTEXT_FNS.
+    full_cqt, time_frames = context
+    features = slice_time_window(full_cqt, index, audio_duration, time_frames)
 
     return np.expand_dims(features, axis=-1)  # (NOTE_BINS, T, 1) - matches build_cnn_model's input shape
 
-def create_hcqt_features(raw_track : RawTrack, index : int, audio_duration : int) -> np.ndarray:
-    window = compute_window(raw_track.audio, index, audio_duration)
+def create_hcqt_features(context : tuple[np.ndarray, int], index : int, audio_duration : int) -> np.ndarray:
+    # context is (full-track HCQT, time_frames), built once per track.
+    full_hcqt, time_frames = context
 
-    return compute_hcqt(window)
+    return slice_time_window(full_hcqt, index, audio_duration, time_frames)
