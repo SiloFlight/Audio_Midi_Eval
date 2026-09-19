@@ -16,17 +16,17 @@ def compute_input_dims(audio_duration : int) -> int:
 
     return len(sample_audio)
 
-def create_model(audio_duration : int) -> tf.keras.Model:
+def create_model(audio_duration : int, seed : int | None = None) -> tf.keras.Model:
     input_dim = compute_input_dims(audio_duration)
 
     inputs = tf.keras.Input(shape=(input_dim,))
 
     x = inputs
     for units in DENSE_UNITS:
-        x = tfkl.Dense(units, activation="relu")(x)
-        x = tfkl.Dropout(DENSE_DROPOUT_RATE)(x)
+        x = tfkl.Dense(units, activation="relu", kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed))(x)
+        x = tfkl.Dropout(DENSE_DROPOUT_RATE, seed=seed)(x)
 
-    x = tfkl.Dense(2 * NOTE_BINS)(x)
+    x = tfkl.Dense(2 * NOTE_BINS, kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed))(x)
     outputs = tfkl.Reshape((2, NOTE_BINS))(x)
 
     return tf.keras.Model(inputs=inputs, outputs=outputs)

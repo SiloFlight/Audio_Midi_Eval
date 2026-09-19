@@ -12,20 +12,20 @@ EVENT_KERNEL_SIZE_1 = (5, 5)
 EVENT_KERNEL_SIZE_2 = (3, 3)
 
 
-def _initializer() -> tf.keras.initializers.VarianceScaling:
-    return tf.keras.initializers.VarianceScaling(scale=2.0, mode="fan_avg", distribution="uniform", seed=None)
+def _initializer(seed : int | None = None) -> tf.keras.initializers.VarianceScaling:
+    return tf.keras.initializers.VarianceScaling(scale=2.0, mode="fan_avg", distribution="uniform", seed=seed)
 
 
 def _kernel_constraint() -> tf.keras.constraints.UnitNorm:
     return tf.keras.constraints.UnitNorm(axis=[0, 1, 2])
 
 
-def _event_head(x : tf.Tensor, n_filters : int) -> tf.Tensor:
+def _event_head(x : tf.Tensor, n_filters : int, seed : int | None = None) -> tf.Tensor:
     x = tfkl.Conv2D(
         n_filters,
         EVENT_KERNEL_SIZE_1,
         padding="same",
-        kernel_initializer=_initializer(),
+        kernel_initializer=_initializer(seed),
         kernel_constraint=_kernel_constraint(),
     )(x)
     x = tfkl.BatchNormalization()(x)
@@ -34,7 +34,7 @@ def _event_head(x : tf.Tensor, n_filters : int) -> tf.Tensor:
         1,
         EVENT_KERNEL_SIZE_2,
         padding="same",
-        kernel_initializer=_initializer(),
+        kernel_initializer=_initializer(seed),
         kernel_constraint=_kernel_constraint(),
     )(x)  # (freq, time, 1) logits, no activation
 
@@ -46,12 +46,12 @@ def _event_head(x : tf.Tensor, n_filters : int) -> tf.Tensor:
     return tfkl.Reshape((1, freq_bins))(x)  # (1, freq) - ready to concat into (2, freq)
 
 
-def build_cnn_model(input_shape : tuple[int, ...], n_filters : int = 32) -> tf.keras.Model:
+def build_cnn_model(input_shape : tuple[int, ...], n_filters : int = 32, seed : int | None = None) -> tf.keras.Model:
     """input_shape: (NOTE_BINS, T, channels)."""
     inputs = tf.keras.Input(shape=input_shape)
 
-    onset_logits = _event_head(inputs, n_filters)
-    offset_logits = _event_head(inputs, n_filters)
+    onset_logits = _event_head(inputs, n_filters, seed)
+    offset_logits = _event_head(inputs, n_filters, seed)
 
     outputs = tfkl.Concatenate(axis=1)([onset_logits, offset_logits])  # (2, NOTE_BINS)
 

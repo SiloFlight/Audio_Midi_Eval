@@ -13,7 +13,7 @@ def compute_input_dims(audio_duration : int) -> tuple[int,int,int]:
 
     return sample_hcqt.shape
 
-def create_model(audio_duration : int) -> tf.keras.Model:
+def create_model(audio_duration : int, seed : int | None = None) -> tf.keras.Model:
     input_shape = compute_input_dims(audio_duration)
 
-    return build_cnn_model(input_shape)
+    return build_cnn_model(input_shape, seed=seed)
