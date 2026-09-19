@@ -7,7 +7,7 @@ from src.schema import InputTypes
 from src.train.train import train, evaluate
 from src.models.load import save_trained_model
 
-DEFAULT_N_TRAIN = 1_000_000  # examples per epoch, not a total dataset cap - see train()
+DEFAULT_N_TRAIN = 100_000  # examples per epoch, not a total dataset cap - see train()
 DEFAULT_N_TEST = -1          # -1 = the full test set
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_EPOCHS = 10
