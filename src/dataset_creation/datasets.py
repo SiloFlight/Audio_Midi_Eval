@@ -1,3 +1,5 @@
+import random
+
 import tensorflow as tf
 
 from src.constants import NOTE_BINS
@@ -19,6 +21,12 @@ _INPUT_DIMS_FNS = {
     InputTypes.CQT: cqt.compute_input_dims,
     InputTypes.HCQT: hcqt.compute_input_dims,
 }
+
+# Shuffle buffer for tf.data: bigger gives better example-level mixing, but holds
+# that many decoded examples in memory at once. Track order is shuffled up front
+# too, so this buffer only needs to smooth out local clumping within a track's
+# run of examples, not do all the randomization work by itself.
+SHUFFLE_BUFFER_SIZE = 10_000
 
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
@@ -44,7 +52,13 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
         for index, label in zip(indices, labels):
             yield feature_fn(raw_track, index, audio_duration), label
 
-def _build_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float) -> tf.data.Dataset:
+def _build_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
+    # Shuffling track order up front means the examples the generator produces
+    # first aren't always drawn from the same handful of tracks. Combined with
+    # .take(n) below, the generator stops being pulled from once n examples have
+    # been produced, so tracks beyond that point are never loaded or processed.
+    shuffled_tracks = random.sample(track_infos, len(track_infos))
+
     feature_shape = _as_shape(_INPUT_DIMS_FNS[input_type](audio_duration))
 
     output_signature = (
@@ -52,17 +66,25 @@ def _build_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio
         tf.TensorSpec(shape=(2, NOTE_BINS), dtype=tf.float32),
     )
 
-    return tf.data.Dataset.from_generator(
-        lambda: _example_generator(track_infos, input_type, audio_duration, accepted_duration),
+    dataset = tf.data.Dataset.from_generator(
+        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration),
         output_signature=output_signature,
     )
 
-def create_training_set(input_type : InputTypes, audio_duration : int, accepted_duration : float) -> tf.data.Dataset:
+    return (
+        dataset
+        .shuffle(SHUFFLE_BUFFER_SIZE)
+        .take(n)
+        .batch(batch_size)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+
+def create_training_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
     train_tracks, _ = split_tracks()
 
-    return _build_dataset(train_tracks, input_type, audio_duration, accepted_duration)
+    return _build_dataset(train_tracks, input_type, audio_duration, accepted_duration, n, batch_size)
 
-def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float) -> tf.data.Dataset:
+def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
     _, test_tracks = split_tracks()
 
-    return _build_dataset(test_tracks, input_type, audio_duration, accepted_duration)
+    return _build_dataset(test_tracks, input_type, audio_duration, accepted_duration, n, batch_size)
