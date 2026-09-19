@@ -46,10 +46,18 @@ def build_metrics() -> list[tf.keras.metrics.Metric]:
         PureNegativeAccuracy(),
     ]
 
+POS_WEIGHT = 15.0
+
+@keras.saving.register_keras_serializable(package="src.train.train")
+def weighted_bce_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
+    return tf.reduce_mean(
+        tf.nn.weighted_cross_entropy_with_logits(labels=y_true, logits=y_pred, pos_weight=POS_WEIGHT)
+    )
+
 def compile_model(model : tf.keras.Model) -> tf.keras.Model:
     model.compile(
         optimizer="adam",
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        loss=weighted_bce_loss,
         metrics=build_metrics(),
     )
 
