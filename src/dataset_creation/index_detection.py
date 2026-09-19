@@ -26,7 +26,7 @@ def get_onset_offset_indices(raw_track : RawTrack, accepted_duration : float, sa
 
     return indices
 
-def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negative_percentage : float = 15) -> set[int]:
+def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negative_percentage : float = 2.5) -> set[int]:
     event_times = _get_event_times(raw_track.midi)
     track_length = len(raw_track.audio)
 
