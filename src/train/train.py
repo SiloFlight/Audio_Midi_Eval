@@ -1,5 +1,6 @@
 import random
 
+import keras
 import numpy as np
 import tensorflow as tf
 
@@ -9,6 +10,7 @@ from src.dataset_creation.datasets import create_training_set, create_test_set
 
 LOGIT_THRESHOLD = 0.0
 
+@keras.saving.register_keras_serializable(package="src.train.train")
 class PureNegativeAccuracy(tf.keras.metrics.Metric):
 
     def __init__(self, threshold : float = LOGIT_THRESHOLD, name : str = "pure_negative_accuracy", **kwargs):
