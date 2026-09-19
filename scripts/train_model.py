@@ -8,9 +8,9 @@ from src.train.train import train, evaluate
 from src.models.load import save_trained_model
 
 DEFAULT_N_TRAIN = 100_000  # examples per epoch, not a total dataset cap - see train()
-DEFAULT_N_TEST = -1          # -1 = the full test set
+DEFAULT_N_TEST = 100_000          # -1 = the full test set
 DEFAULT_BATCH_SIZE = 32
-DEFAULT_EPOCHS = 10
+DEFAULT_EPOCHS = 100
 DEFAULT_SEED = 42
 
 def parse_args() -> argparse.Namespace:
