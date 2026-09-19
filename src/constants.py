@@ -9,6 +9,7 @@ MAESTRO_Folder = Path("data/MAESTRO")
 MAPS_Folder = Path("data/MAPS")
 Synthetic_Folder = Path("data/Synthetic")
 Index_Folder = Path("data/Indices")
+Models_Folder = Path("models")
 
 #Model Types
 INPUT_DURATIONS = [1,2,4]
