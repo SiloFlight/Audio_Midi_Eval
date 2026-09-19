@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import tensorflow as tf
 
 from src.constants import NOTE_BINS
@@ -22,10 +23,6 @@ _INPUT_DIMS_FNS = {
     InputTypes.HCQT: hcqt.compute_input_dims,
 }
 
-# Shuffle buffer for tf.data: bigger gives better example-level mixing, but holds
-# that many decoded examples in memory at once. Track order is shuffled up front
-# too, so this buffer only needs to smooth out local clumping within a track's
-# run of examples, not do all the randomization work by itself.
 SHUFFLE_BUFFER_SIZE = 10_000
 
 def _as_shape(dims) -> tuple[int, ...]:
@@ -40,24 +37,21 @@ def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo]]:
 
     return train_tracks, test_tracks
 
-def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float):
+def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, rng : np.random.Generator):
     feature_fn = _FEATURE_FNS[input_type]
 
     for track_info in track_infos:
         raw_track = load_track_info(track_info)
 
-        indices = get_potential_indices(raw_track, accepted_duration)
+        indices = get_potential_indices(raw_track, accepted_duration, rng=rng)
         labels = create_labels(raw_track, indices, accepted_duration)
 
         for index, label in zip(indices, labels):
             yield feature_fn(raw_track, index, audio_duration), label
 
-def _build_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
-    # Shuffling track order up front means the examples the generator produces
-    # first aren't always drawn from the same handful of tracks. Combined with
-    # .take(n) below, the generator stops being pulled from once n examples have
-    # been produced, so tracks beyond that point are never loaded or processed.
-    shuffled_tracks = random.sample(track_infos, len(track_infos))
+def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int) -> tf.data.Dataset:
+    shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
+    rng = np.random.default_rng(seed)
 
     feature_shape = _as_shape(_INPUT_DIMS_FNS[input_type](audio_duration))
 
@@ -67,24 +61,22 @@ def _build_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio
     )
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration),
+        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, rng),
         output_signature=output_signature,
     )
 
-    return (
-        dataset
-        .shuffle(SHUFFLE_BUFFER_SIZE)
-        .take(n)
-        .batch(batch_size)
-        .prefetch(tf.data.AUTOTUNE)
-    )
+    return dataset.shuffle(SHUFFLE_BUFFER_SIZE, seed=seed)
 
-def create_training_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
+def create_training_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
     train_tracks, _ = split_tracks()
 
-    return _build_dataset(train_tracks, input_type, audio_duration, accepted_duration, n, batch_size)
+    dataset = _build_base_dataset(train_tracks, input_type, audio_duration, accepted_duration, seed)
 
-def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, n : int, batch_size : int) -> tf.data.Dataset:
+    return dataset.take(n).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
     _, test_tracks = split_tracks()
 
-    return _build_dataset(test_tracks, input_type, audio_duration, accepted_duration, n, batch_size)
+    dataset = _build_base_dataset(test_tracks, input_type, audio_duration, accepted_duration, seed)
+
+    return dataset.take(n).batch(batch_size).prefetch(tf.data.AUTOTUNE)
