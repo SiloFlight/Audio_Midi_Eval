@@ -37,6 +37,14 @@ _TRACK_CONTEXT_FNS = {
 
 SHUFFLE_BUFFER_SIZE = 10_000
 
+# Caps how many examples a single track can contribute. Without this, a track
+# with more potential indices than SHUFFLE_BUFFER_SIZE (confirmed via
+# diagnose_track_example_counts.py - some MAESTRO recordings produce 200K+
+# potential indices against a 10K buffer) dominates the shuffle window for a
+# long stretch, so many consecutive training steps end up correlated instead
+# of drawing from a representative mix of tracks.
+MAX_EXAMPLES_PER_TRACK = SHUFFLE_BUFFER_SIZE // 10
+
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
 
@@ -58,7 +66,7 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
         raw_track = load_track_info(track_info)
         context = context_fn(raw_track, input_dims)
 
-        indices = get_potential_indices(raw_track, accepted_duration, rng=rng)
+        indices = get_potential_indices(raw_track, accepted_duration, rng=rng, max_examples=MAX_EXAMPLES_PER_TRACK)
         labels = create_labels(raw_track, indices, accepted_duration)
 
         for index, label in zip(indices, labels):

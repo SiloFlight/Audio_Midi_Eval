@@ -47,10 +47,25 @@ def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negati
 
     return set(sampled_indices.tolist())
 
-def get_potential_indices(raw_track : RawTrack, accepted_duration : float, rng : np.random.Generator | None = None) -> list[int]:
+def get_potential_indices(raw_track : RawTrack, accepted_duration : float, rng : np.random.Generator | None = None, max_examples : int | None = None) -> list[int]:
+    rng = rng if rng is not None else np.random.default_rng()
 
-    onset_offset_indices = get_onset_offset_indices(raw_track,accepted_duration)
+    onset_offset_indices = sorted(get_onset_offset_indices(raw_track,accepted_duration))
+    negative_indices = sorted(get_negative_indices(raw_track,accepted_duration,rng=rng))
 
-    negative_indices = get_negative_indices(raw_track,accepted_duration,rng=rng)
+    total = len(onset_offset_indices) + len(negative_indices)
+    if max_examples is not None and total > max_examples:
+        # Cap this track's contribution while preserving its own pre-cap
+        # positive/negative ratio - splitting the cap proportionally rather than
+        # sampling the union keeps a track's negative_percentage tuning intact
+        # instead of leaving it to chance.
+        pos_target = round(max_examples * len(onset_offset_indices) / total)
+        neg_target = max_examples - pos_target
 
-    return sorted(onset_offset_indices | negative_indices)
+        pos_count = min(pos_target, len(onset_offset_indices))
+        neg_count = min(neg_target, len(negative_indices))
+
+        onset_offset_indices = rng.choice(onset_offset_indices, size=pos_count, replace=False).tolist()
+        negative_indices = rng.choice(negative_indices, size=neg_count, replace=False).tolist()
+
+    return sorted(set(onset_offset_indices) | set(negative_indices))
