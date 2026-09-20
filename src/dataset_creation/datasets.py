@@ -40,14 +40,15 @@ SHUFFLE_BUFFER_SIZE = 10_000
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
 
-def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo]]:
+def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo], list[TrackInfo]]:
     maestro_tracks = get_maestro_track_index()
     maps_tracks = get_maps_track_index()
 
+    train_tracks = [t for t in maestro_tracks if t.track_desc == "train"] + maps_tracks
+    val_tracks = [t for t in maestro_tracks if t.track_desc == "validation"]
     test_tracks = [t for t in maestro_tracks if t.track_desc == "test"]
-    train_tracks = [t for t in maestro_tracks if t.track_desc != "test"] + maps_tracks
 
-    return train_tracks, test_tracks
+    return train_tracks, val_tracks, test_tracks
 
 def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, rng : np.random.Generator):
     feature_fn = _FEATURE_FNS[input_type]
@@ -83,14 +84,25 @@ def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, 
     return dataset.shuffle(SHUFFLE_BUFFER_SIZE, seed=seed)
 
 def create_training_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
-    train_tracks, _ = split_tracks()
+    train_tracks, _, _ = split_tracks()
 
     dataset = _build_base_dataset(train_tracks, input_type, audio_duration, accepted_duration, seed)
 
     return dataset.take(n).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
+def create_validation_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int) -> tf.data.Dataset:
+    _, val_tracks, _ = split_tracks()
+
+    dataset = _build_base_dataset(val_tracks, input_type, audio_duration, accepted_duration, seed)
+
+    # .cache() freezes whichever n examples the first pass produces (including the
+    # shuffle order) in memory, so every subsequent epoch re-reads the exact same
+    # set instead of re-running the generator/shuffle (which would otherwise draw
+    # different examples each time, per tf.data's reshuffle_each_iteration default).
+    return dataset.take(n).cache().batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
 def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
-    _, test_tracks = split_tracks()
+    _, _, test_tracks = split_tracks()
 
     dataset = _build_base_dataset(test_tracks, input_type, audio_duration, accepted_duration, seed)
 
