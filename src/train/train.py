@@ -10,7 +10,7 @@ from src.dataset_creation.datasets import create_training_set, create_validation
 
 LOGIT_THRESHOLD = 0.0
 
-POS_WEIGHT = 10.0
+POS_WEIGHT = 3
 
 @keras.saving.register_keras_serializable(package="src.train.train")
 class PureNegativeAccuracy(tf.keras.metrics.Metric):
