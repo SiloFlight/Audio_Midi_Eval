@@ -50,8 +50,12 @@ MAX_EXAMPLES_PER_TRACK = SHUFFLE_BUFFER_SIZE // 10
 # windows can be sliced from it), so an outlier-length track's compute cost
 # gets amortized over very few retained examples - benchmarked at up to a
 # ~60-290x worse per-example cost for tracks in the tens-of-minutes range.
-# Tracks over this are excluded entirely rather than paying that cost.
-MAX_TRACK_DURATION = 5 * 60  # seconds
+# Tracks over this are excluded entirely rather than paying that cost. 120s
+# was chosen from diagnose_track_example_counts.py's duration sweep: it
+# eliminates ~89% of the remaining over-cap example waste versus 300s, and
+# going lower (90s/60s/30s) only adds a few more percentage points for
+# meaningfully more excluded (still full-performance-length) tracks.
+MAX_TRACK_DURATION = 2 * 60  # seconds
 
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
