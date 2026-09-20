@@ -45,6 +45,14 @@ SHUFFLE_BUFFER_SIZE = 10_000
 # of drawing from a representative mix of tracks.
 MAX_EXAMPLES_PER_TRACK = SHUFFLE_BUFFER_SIZE // 10
 
+# compute_cqt/compute_hcqt cost is paid once per track regardless of
+# MAX_EXAMPLES_PER_TRACK (the full track has to be transformed before any
+# windows can be sliced from it), so an outlier-length track's compute cost
+# gets amortized over very few retained examples - benchmarked at up to a
+# ~60-290x worse per-example cost for tracks in the tens-of-minutes range.
+# Tracks over this are excluded entirely rather than paying that cost.
+MAX_TRACK_DURATION = 5 * 60  # seconds
+
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
 
@@ -73,6 +81,9 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
             yield feature_fn(context, index, audio_duration), label
 
 def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int) -> tf.data.Dataset:
+    # Filtered on track_info.duration (already known from the index) rather than
+    # inside _example_generator, so excluded tracks are never loaded from disk at all.
+    track_infos = [t for t in track_infos if t.duration <= MAX_TRACK_DURATION]
     shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
     rng = np.random.default_rng(seed)
 
