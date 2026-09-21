@@ -83,7 +83,7 @@ def weighted_bce_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
         tf.nn.weighted_cross_entropy_with_logits(labels=y_true, logits=y_pred, pos_weight=POS_WEIGHT)
     )
 
-INITIAL_LEARNING_RATE = 1e-3
+INITIAL_LEARNING_RATE = 2e-5
 
 def compile_model(model : tf.keras.Model) -> tf.keras.Model:
     model.compile(
