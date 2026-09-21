@@ -1,11 +1,8 @@
 import numpy as np
 
 from src.audio_processing import compute_window, slice_time_window
-from src.constants import DEFAULT_SAMPLE_RATE, MIN_NOTE, MAX_NOTE, NOTE_BINS
+from src.constants import DEFAULT_SAMPLE_RATE, MIN_NOTE, MAX_NOTE, NOTE_BINS, ONSET_ROW, OFFSET_ROW
 from src.schema import RawTrack
-
-ONSET_ROW = 0
-OFFSET_ROW = 1
 
 def _sorted_note_events(raw_track : RawTrack) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     starts, start_bins, ends, end_bins = [], [], [], []

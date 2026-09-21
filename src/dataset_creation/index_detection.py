@@ -2,7 +2,7 @@ import numpy as np
 from pretty_midi import PrettyMIDI
 
 from src.schema import RawTrack
-from src.constants import DEFAULT_SAMPLE_RATE
+from src.constants import DEFAULT_SAMPLE_RATE, SAMPLE_PER_EVENT, NEGATIVE_PERCENTAGE
 
 def get_index_from_timestamp(t : float) -> int:
     return round(t * DEFAULT_SAMPLE_RATE)
@@ -15,7 +15,7 @@ def _get_event_times(midi_obj : PrettyMIDI) -> np.ndarray:
     offsets = _get_offsets(midi_obj)
     return np.concatenate([onsets, offsets])
 
-def get_onset_offset_indices(raw_track : RawTrack, accepted_duration : float, sample_per_event = 5) -> set[int]:
+def get_onset_offset_indices(raw_track : RawTrack, accepted_duration : float, sample_per_event : int = SAMPLE_PER_EVENT) -> set[int]:
     event_times = _get_event_times(raw_track.midi)
 
     indices = set()
@@ -25,7 +25,7 @@ def get_onset_offset_indices(raw_track : RawTrack, accepted_duration : float, sa
 
     return indices
 
-def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negative_percentage : float = 2.5, rng : np.random.Generator | None = None) -> set[int]:
+def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negative_percentage : float = NEGATIVE_PERCENTAGE, rng : np.random.Generator | None = None) -> set[int]:
     rng = rng if rng is not None else np.random.default_rng()
 
     event_times = _get_event_times(raw_track.midi)

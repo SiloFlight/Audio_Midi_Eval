@@ -7,10 +7,10 @@ import tensorflow as tf
 from src.schema import InputTypes
 from src.train.models import load_model
 from src.dataset_creation.datasets import create_training_set, create_validation_set, create_test_set
-
-LOGIT_THRESHOLD = 0.0
-
-POS_WEIGHT = 3
+from src.constants import (
+    LOGIT_THRESHOLD, POS_WEIGHT, INITIAL_LEARNING_RATE,
+    EARLY_STOPPING_PATIENCE, LR_PLATEAU_PATIENCE, LR_PLATEAU_FACTOR,
+)
 
 @keras.saving.register_keras_serializable(package="src.train.train")
 class PureNegativeAccuracy(tf.keras.metrics.Metric):
@@ -83,8 +83,6 @@ def weighted_bce_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
         tf.nn.weighted_cross_entropy_with_logits(labels=y_true, logits=y_pred, pos_weight=POS_WEIGHT)
     )
 
-INITIAL_LEARNING_RATE = 2e-5
-
 def compile_model(model : tf.keras.Model) -> tf.keras.Model:
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=INITIAL_LEARNING_RATE),
@@ -106,8 +104,8 @@ def build_callbacks() -> list[tf.keras.callbacks.Callback]:
         # model back to that copy when training stops - not the last epoch's
         # weights, which may already have regressed past the best point (as seen
         # in the HCQT run's epoch 26-29 peak that later regressed).
-        tf.keras.callbacks.EarlyStopping(monitor="val_f1_score", mode="max", patience=25, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(monitor="val_f1_score", mode="max", patience=10, factor=0.5, verbose=1),
+        tf.keras.callbacks.EarlyStopping(monitor="val_f1_score", mode="max", patience=EARLY_STOPPING_PATIENCE, restore_best_weights=True),
+        tf.keras.callbacks.ReduceLROnPlateau(monitor="val_f1_score", mode="max", patience=LR_PLATEAU_PATIENCE, factor=LR_PLATEAU_FACTOR, verbose=1),
     ]
 
 def train(

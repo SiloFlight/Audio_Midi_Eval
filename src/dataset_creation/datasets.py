@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 
 from src.audio_processing import compute_cqt, compute_hcqt
-from src.constants import NOTE_BINS
+from src.constants import MAX_EXAMPLES_PER_TRACK, MAX_TRACK_DURATION, NOTE_BINS, SHUFFLE_BUFFER_SIZE
 from src.schema import InputTypes, TrackInfo
 from src.data.misc import load_track_info
 from src.data.analysis.track_indices import get_maestro_track_index, get_maps_track_index
@@ -24,38 +24,11 @@ _INPUT_DIMS_FNS = {
     InputTypes.HCQT: hcqt.compute_input_dims,
 }
 
-# Builds whatever each input type needs once per track, before looping over that
-# track's indices - for CQT/HCQT this is the expensive part (the full-track
-# transform), computed once instead of once per index. input_dims is this
-# input_type's compute_input_dims(audio_duration) result, computed once per
-# dataset build (see _build_base_dataset) since it doesn't vary per track.
 _TRACK_CONTEXT_FNS = {
     InputTypes.Waveform: lambda raw_track, input_dims: raw_track,
     InputTypes.CQT: lambda raw_track, input_dims: (compute_cqt(raw_track.audio), input_dims[1]),
     InputTypes.HCQT: lambda raw_track, input_dims: (compute_hcqt(raw_track.audio), input_dims[1]),
 }
-
-SHUFFLE_BUFFER_SIZE = 10_000
-
-# Caps how many examples a single track can contribute. Without this, a track
-# with more potential indices than SHUFFLE_BUFFER_SIZE (confirmed via
-# diagnose_track_example_counts.py - some MAESTRO recordings produce 200K+
-# potential indices against a 10K buffer) dominates the shuffle window for a
-# long stretch, so many consecutive training steps end up correlated instead
-# of drawing from a representative mix of tracks.
-MAX_EXAMPLES_PER_TRACK = SHUFFLE_BUFFER_SIZE // 10
-
-# compute_cqt/compute_hcqt cost is paid once per track regardless of
-# MAX_EXAMPLES_PER_TRACK (the full track has to be transformed before any
-# windows can be sliced from it), so an outlier-length track's compute cost
-# gets amortized over very few retained examples - benchmarked at up to a
-# ~60-290x worse per-example cost for tracks in the tens-of-minutes range.
-# Tracks over this are excluded entirely rather than paying that cost. 120s
-# was chosen from diagnose_track_example_counts.py's duration sweep: it
-# eliminates ~89% of the remaining over-cap example waste versus 300s, and
-# going lower (90s/60s/30s) only adds a few more percentage points for
-# meaningfully more excluded (still full-performance-length) tracks.
-MAX_TRACK_DURATION = 2 * 60  # seconds
 
 def _as_shape(dims) -> tuple[int, ...]:
     return (dims,) if isinstance(dims, int) else tuple(dims)
