@@ -8,6 +8,7 @@ from src.audio_processing import compute_cqt, compute_hcqt
 from src.constants import (
     MAX_EXAMPLES_PER_TRACK, MAX_TRACK_DURATION, NOTE_BINS, SHUFFLE_BUFFER_SIZE, NEGATIVE_PERCENTAGE,
     CURRICULUM_SPLIT_SEED, CURRICULUM_VAL_TRACKS, CURRICULUM_NEGATIVE_PERCENTAGE, TRACK_LOAD_WORKERS,
+    CURRICULUM_MAX_TRACK_DURATION, CURRICULUM_MAX_EXAMPLES_PER_TRACK,
 )
 from src.schema import CurriculumStage, InputTypes, TrackInfo
 from src.data.misc import load_track_info
@@ -47,7 +48,7 @@ def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo], list[TrackInfo]]:
 
     return train_tracks, val_tracks, test_tracks
 
-def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, negative_percentage : float) -> list:
+def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, negative_percentage : float, max_examples_per_track : int) -> list:
     feature_fn = _FEATURE_FNS[input_type]
     context_fn = _TRACK_CONTEXT_FNS[input_type]
 
@@ -56,12 +57,12 @@ def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : 
     raw_track = load_track_info(track_info)
     context = context_fn(raw_track, input_dims)
 
-    indices = get_potential_indices(raw_track, accepted_duration, rng=rng, max_examples=MAX_EXAMPLES_PER_TRACK, negative_percentage=negative_percentage)
+    indices = get_potential_indices(raw_track, accepted_duration, rng=rng, max_examples=max_examples_per_track, negative_percentage=negative_percentage)
     labels = create_labels(raw_track, indices, accepted_duration)
 
     return [(feature_fn(context, index, audio_duration), label) for index, label in zip(indices, labels)]
 
-def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, seed : int, negative_percentage : float):
+def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, seed : int, negative_percentage : float, max_examples_per_track : int):
     # ThreadPoolExecutor.map submits every track's work immediately, even
     # though only TRACK_LOAD_WORKERS run at a time - the rest just queue up.
     # tf.data routinely closes this generator early (GeneratorExit, e.g. once
@@ -73,7 +74,7 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
     pool = ThreadPoolExecutor(max_workers=TRACK_LOAD_WORKERS)
     try:
         futures = pool.map(
-            lambda track_info: _load_track_examples(track_info, seed, input_type, audio_duration, accepted_duration, input_dims, negative_percentage),
+            lambda track_info: _load_track_examples(track_info, seed, input_type, audio_duration, accepted_duration, input_dims, negative_percentage, max_examples_per_track),
             track_infos,
         )
         for examples in futures:
@@ -81,10 +82,10 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
-def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int, negative_percentage : float = NEGATIVE_PERCENTAGE) -> tf.data.Dataset:
+def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int, negative_percentage : float = NEGATIVE_PERCENTAGE, max_track_duration : float = MAX_TRACK_DURATION, max_examples_per_track : int = MAX_EXAMPLES_PER_TRACK) -> tf.data.Dataset:
     # Filtered on track_info.duration (already known from the index) rather than
     # inside _example_generator, so excluded tracks are never loaded from disk at all.
-    track_infos = [t for t in track_infos if t.duration <= MAX_TRACK_DURATION]
+    track_infos = [t for t in track_infos if t.duration <= max_track_duration]
     shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
 
     input_dims = _INPUT_DIMS_FNS[input_type](audio_duration)
@@ -96,7 +97,7 @@ def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, 
     )
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, input_dims, seed, negative_percentage),
+        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, input_dims, seed, negative_percentage, max_examples_per_track),
         output_signature=output_signature,
     )
 
@@ -135,33 +136,50 @@ def _maps_subset(track_name : str) -> str:
     return "MUS" if parts[1].startswith("MUS") else parts[1]
 
 def split_stage_tracks(stage : CurriculumStage) -> tuple[list[TrackInfo], list[TrackInfo]]:
-    """Returns (train_tracks, val_tracks) for one curriculum stage. The split
-    is keyed on CURRICULUM_SPLIT_SEED, not the caller's training seed, so it
-    stays fixed across different training runs/seeds."""
+    """Returns (train_tracks, val_tracks) for one curriculum stage. ISOL/Chords
+    are split via a fixed random split (CURRICULUM_SPLIT_SEED, independent of
+    the caller's training seed, so the split itself never moves). Full instead
+    reuses MAESTRO's own native train/validation split, with MAPS MUS tracks
+    folded entirely into train - only ~270 tracks, too few to usefully carve a
+    separate held-out slice from on top of MAESTRO's own validation set."""
+    if stage == CurriculumStage.FULL:
+        maestro_tracks = get_maestro_track_index()
+        mus_tracks = [t for t in get_maps_track_index() if _maps_subset(t.track_name) == "MUS"]
+
+        train_tracks = [t for t in maestro_tracks if t.track_desc == "train"] + mus_tracks
+        val_tracks = [t for t in maestro_tracks if t.track_desc == "validation"]
+
+        return train_tracks, val_tracks
+
     if stage == CurriculumStage.ISOL:
         pool = [t for t in get_maps_track_index() if _maps_subset(t.track_name) == "ISOL"]
     elif stage == CurriculumStage.CHORDS:
         pool = [t for t in get_maps_track_index() if _maps_subset(t.track_name) in ("RAND", "UCHO")]
     else:
-        raise NotImplementedError(f"{stage} splitting isn't implemented yet")
+        raise ValueError(f"Unknown stage: {stage}")
 
     shuffled = random.Random(CURRICULUM_SPLIT_SEED).sample(pool, len(pool))
     val_count = CURRICULUM_VAL_TRACKS[stage.value]
 
     return shuffled[val_count:], shuffled[:val_count]
 
+def _curriculum_overrides(stage : CurriculumStage) -> dict:
+    return {
+        "negative_percentage": CURRICULUM_NEGATIVE_PERCENTAGE.get(stage.value, NEGATIVE_PERCENTAGE),
+        "max_track_duration": CURRICULUM_MAX_TRACK_DURATION.get(stage.value, MAX_TRACK_DURATION),
+        "max_examples_per_track": CURRICULUM_MAX_EXAMPLES_PER_TRACK.get(stage.value, MAX_EXAMPLES_PER_TRACK),
+    }
+
 def create_curriculum_training_set(stage : CurriculumStage, input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
     train_tracks, _ = split_stage_tracks(stage)
-    negative_percentage = CURRICULUM_NEGATIVE_PERCENTAGE.get(stage.value, NEGATIVE_PERCENTAGE)
 
-    dataset = _build_base_dataset(train_tracks, input_type, audio_duration, accepted_duration, seed, negative_percentage=negative_percentage)
+    dataset = _build_base_dataset(train_tracks, input_type, audio_duration, accepted_duration, seed, **_curriculum_overrides(stage))
 
     return dataset.take(n).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 def create_curriculum_validation_set(stage : CurriculumStage, input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int) -> tf.data.Dataset:
     _, val_tracks = split_stage_tracks(stage)
-    negative_percentage = CURRICULUM_NEGATIVE_PERCENTAGE.get(stage.value, NEGATIVE_PERCENTAGE)
 
-    dataset = _build_base_dataset(val_tracks, input_type, audio_duration, accepted_duration, seed, negative_percentage=negative_percentage)
+    dataset = _build_base_dataset(val_tracks, input_type, audio_duration, accepted_duration, seed, **_curriculum_overrides(stage))
 
     return dataset.take(n).cache().batch(batch_size).prefetch(tf.data.AUTOTUNE)

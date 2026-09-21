@@ -52,4 +52,10 @@ LR_PLATEAU_FACTOR = 0.5
 CURRICULUM_SPLIT_SEED = 42  # fixed regardless of training seed, so the split itself never moves
 CURRICULUM_VAL_TRACKS = {"ISOL": 140, "Chords": 414}  # ~10K validation examples each, see diagnose_maps_volume.py
 CURRICULUM_NEGATIVE_PERCENTAGE = {"ISOL": 0.75, "Chords": 0.4}  # ~10% negative rate, see diagnose_negative_percentage_sweep.py
-CURRICULUM_LEARNING_RATE = {"ISOL": INITIAL_LEARNING_RATE, "Chords": INITIAL_LEARNING_RATE}  # same as default until tuned per stage
+CURRICULUM_MAX_TRACK_DURATION = {"Full": 720}  # seconds - see diagnose_stage3_duration_sweep.py
+CURRICULUM_MAX_EXAMPLES_PER_TRACK = {"Full": 2000}  # see diagnose_stage3_duration_sweep.py
+CURRICULUM_LEARNING_RATE = {
+    "ISOL": INITIAL_LEARNING_RATE,  # same as default until tuned per stage
+    "Chords": INITIAL_LEARNING_RATE,  # same as default until tuned per stage
+    "Full": 5e-6,  # 1/4 of INITIAL_LEARNING_RATE - starting point, reactionary to how stage 3 training goes
+}
