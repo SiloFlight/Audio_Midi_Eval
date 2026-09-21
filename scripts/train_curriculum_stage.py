@@ -1,8 +1,7 @@
-"""CLI to train and save one curriculum stage (ISOL or Chords) for a given
-(input type, audio duration, accepted duration). Chords automatically loads
-and continues from ISOL's saved checkpoint - run ISOL first.
-
-Stage 3 (Full) isn't implemented yet - only ISOL and Chords are runnable here.
+"""CLI to train and save one curriculum stage (ISOL, Chords, or Full) for a
+given (input type, audio duration, accepted duration). Each stage after ISOL
+automatically loads and continues from the prior stage's saved checkpoint -
+run them in order: ISOL, then Chords, then Full.
 """
 
 import argparse
@@ -18,7 +17,7 @@ DEFAULT_BATCH_SIZE = 32
 DEFAULT_EPOCHS = 500
 DEFAULT_SEED = 42
 
-_STAGE_ORDER = [CurriculumStage.ISOL, CurriculumStage.CHORDS]
+_STAGE_ORDER = [CurriculumStage.ISOL, CurriculumStage.CHORDS, CurriculumStage.FULL]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train and save one curriculum stage.")
