@@ -38,6 +38,7 @@ MAX_EXAMPLES_PER_TRACK = SHUFFLE_BUFFER_SIZE // 10
 MAX_TRACK_DURATION = 2 * 60  # seconds
 SAMPLE_PER_EVENT = 5
 NEGATIVE_PERCENTAGE = 2.5
+TRACK_LOAD_WORKERS = 4  # concurrent load_track_info/context calls per _example_generator
 
 #Training
 LOGIT_THRESHOLD = 0.0

@@ -1,4 +1,5 @@
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import tensorflow as tf
@@ -6,7 +7,7 @@ import tensorflow as tf
 from src.audio_processing import compute_cqt, compute_hcqt
 from src.constants import (
     MAX_EXAMPLES_PER_TRACK, MAX_TRACK_DURATION, NOTE_BINS, SHUFFLE_BUFFER_SIZE, NEGATIVE_PERCENTAGE,
-    CURRICULUM_SPLIT_SEED, CURRICULUM_VAL_TRACKS, CURRICULUM_NEGATIVE_PERCENTAGE,
+    CURRICULUM_SPLIT_SEED, CURRICULUM_VAL_TRACKS, CURRICULUM_NEGATIVE_PERCENTAGE, TRACK_LOAD_WORKERS,
 )
 from src.schema import CurriculumStage, InputTypes, TrackInfo
 from src.data.misc import load_track_info
@@ -46,26 +47,46 @@ def split_tracks() -> tuple[list[TrackInfo], list[TrackInfo], list[TrackInfo]]:
 
     return train_tracks, val_tracks, test_tracks
 
-def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, rng : np.random.Generator, negative_percentage : float):
+def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, negative_percentage : float) -> list:
     feature_fn = _FEATURE_FNS[input_type]
     context_fn = _TRACK_CONTEXT_FNS[input_type]
 
-    for track_info in track_infos:
-        raw_track = load_track_info(track_info)
-        context = context_fn(raw_track, input_dims)
+    # Each track gets its own rng instead of sharing one across calls -
+    # np.random.Generator isn't thread-safe, and this is called concurrently
+    # from multiple ThreadPoolExecutor workers in _example_generator. Seeding
+    # from (track_seed, track index) keeps the whole pipeline deterministic
+    # regardless of which worker happens to process a track, or in what order
+    # they complete - unlike the single shared-rng version, the exact
+    # positive/negative draws for a given track are no longer dependent on
+    # every other track processed before it in the sequence.
+    rng = np.random.default_rng([track_seed, hash(track_info.track_name) & 0xFFFFFFFF])
 
-        indices = get_potential_indices(raw_track, accepted_duration, rng=rng, max_examples=MAX_EXAMPLES_PER_TRACK, negative_percentage=negative_percentage)
-        labels = create_labels(raw_track, indices, accepted_duration)
+    raw_track = load_track_info(track_info)
+    context = context_fn(raw_track, input_dims)
 
-        for index, label in zip(indices, labels):
-            yield feature_fn(context, index, audio_duration), label
+    indices = get_potential_indices(raw_track, accepted_duration, rng=rng, max_examples=MAX_EXAMPLES_PER_TRACK, negative_percentage=negative_percentage)
+    labels = create_labels(raw_track, indices, accepted_duration)
+
+    return [(feature_fn(context, index, audio_duration), label) for index, label in zip(indices, labels)]
+
+def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, seed : int, negative_percentage : float):
+    with ThreadPoolExecutor(max_workers=TRACK_LOAD_WORKERS) as pool:
+        # ThreadPoolExecutor.map dispatches concurrently but yields results
+        # back in submission order, so downstream ordering (before the
+        # .shuffle() in _build_base_dataset mixes it anyway) is unchanged
+        # from the sequential version - only the loading/compute overlaps.
+        futures = pool.map(
+            lambda track_info: _load_track_examples(track_info, seed, input_type, audio_duration, accepted_duration, input_dims, negative_percentage),
+            track_infos,
+        )
+        for examples in futures:
+            yield from examples
 
 def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int, negative_percentage : float = NEGATIVE_PERCENTAGE) -> tf.data.Dataset:
     # Filtered on track_info.duration (already known from the index) rather than
     # inside _example_generator, so excluded tracks are never loaded from disk at all.
     track_infos = [t for t in track_infos if t.duration <= MAX_TRACK_DURATION]
     shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
-    rng = np.random.default_rng(seed)
 
     input_dims = _INPUT_DIMS_FNS[input_type](audio_duration)
     feature_shape = _as_shape(input_dims)
@@ -76,7 +97,7 @@ def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, 
     )
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, input_dims, rng, negative_percentage),
+        lambda: _example_generator(shuffled_tracks, input_type, audio_duration, accepted_duration, input_dims, seed, negative_percentage),
         output_signature=output_signature,
     )
 
