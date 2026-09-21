@@ -18,6 +18,11 @@ class InputTypes(str,Enum):
     CQT = "CQT"
     HCQT = "HCQT"
 
+class CurriculumStage(str, Enum):
+    ISOL = "ISOL"
+    CHORDS = "Chords"
+    FULL = "Full"
+
 @dataclass
 class TrackInfo:
     duration: float

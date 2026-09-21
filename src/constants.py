@@ -46,3 +46,8 @@ INITIAL_LEARNING_RATE = 2e-5
 EARLY_STOPPING_PATIENCE = 25
 LR_PLATEAU_PATIENCE = 10
 LR_PLATEAU_FACTOR = 0.5
+
+#Curriculum Stages
+CURRICULUM_SPLIT_SEED = 42  # fixed regardless of training seed, so the split itself never moves
+CURRICULUM_VAL_TRACKS = {"ISOL": 140, "Chords": 414}  # ~10K validation examples each, see diagnose_maps_volume.py
+CURRICULUM_NEGATIVE_PERCENTAGE = {"ISOL": 0.75, "Chords": 0.4}  # ~10% negative rate, see diagnose_negative_percentage_sweep.py
