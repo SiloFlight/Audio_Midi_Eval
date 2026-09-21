@@ -51,14 +51,6 @@ def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : 
     feature_fn = _FEATURE_FNS[input_type]
     context_fn = _TRACK_CONTEXT_FNS[input_type]
 
-    # Each track gets its own rng instead of sharing one across calls -
-    # np.random.Generator isn't thread-safe, and this is called concurrently
-    # from multiple ThreadPoolExecutor workers in _example_generator. Seeding
-    # from (track_seed, track index) keeps the whole pipeline deterministic
-    # regardless of which worker happens to process a track, or in what order
-    # they complete - unlike the single shared-rng version, the exact
-    # positive/negative draws for a given track are no longer dependent on
-    # every other track processed before it in the sequence.
     rng = np.random.default_rng([track_seed, hash(track_info.track_name) & 0xFFFFFFFF])
 
     raw_track = load_track_info(track_info)
@@ -70,17 +62,24 @@ def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : 
     return [(feature_fn(context, index, audio_duration), label) for index, label in zip(indices, labels)]
 
 def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, seed : int, negative_percentage : float):
-    with ThreadPoolExecutor(max_workers=TRACK_LOAD_WORKERS) as pool:
-        # ThreadPoolExecutor.map dispatches concurrently but yields results
-        # back in submission order, so downstream ordering (before the
-        # .shuffle() in _build_base_dataset mixes it anyway) is unchanged
-        # from the sequential version - only the loading/compute overlaps.
+    # ThreadPoolExecutor.map submits every track's work immediately, even
+    # though only TRACK_LOAD_WORKERS run at a time - the rest just queue up.
+    # tf.data routinely closes this generator early (GeneratorExit, e.g. once
+    # the shuffle buffer has enough), and a plain `with ThreadPoolExecutor()`
+    # block's default cleanup (shutdown(wait=True)) would then block until
+    # every already-queued track finishes, even though none of it is wanted
+    # anymore. cancel_futures drops the unstarted backlog instead of draining
+    # it; only the handful of tasks already running have to finish.
+    pool = ThreadPoolExecutor(max_workers=TRACK_LOAD_WORKERS)
+    try:
         futures = pool.map(
             lambda track_info: _load_track_examples(track_info, seed, input_type, audio_duration, accepted_duration, input_dims, negative_percentage),
             track_infos,
         )
         for examples in futures:
             yield from examples
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int, negative_percentage : float = NEGATIVE_PERCENTAGE) -> tf.data.Dataset:
     # Filtered on track_info.duration (already known from the index) rather than
