@@ -12,10 +12,10 @@ from src.schema import CurriculumStage, InputTypes
 from src.train.train import train_curriculum_stage
 from src.models.load import save_trained_model, load_trained_model
 
-DEFAULT_N_TRAIN = 100_000
+DEFAULT_N_TRAIN = 20_000
 DEFAULT_N_VAL = 10_000
 DEFAULT_BATCH_SIZE = 32
-DEFAULT_EPOCHS = 100
+DEFAULT_EPOCHS = 500
 DEFAULT_SEED = 42
 
 _STAGE_ORDER = [CurriculumStage.ISOL, CurriculumStage.CHORDS]
