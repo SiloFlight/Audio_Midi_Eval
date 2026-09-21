@@ -47,11 +47,11 @@ def get_negative_indices(raw_track : RawTrack, accepted_duration : float, negati
 
     return set(sampled_indices.tolist())
 
-def get_potential_indices(raw_track : RawTrack, accepted_duration : float, rng : np.random.Generator | None = None, max_examples : int | None = None) -> list[int]:
+def get_potential_indices(raw_track : RawTrack, accepted_duration : float, rng : np.random.Generator | None = None, max_examples : int | None = None, negative_percentage : float = NEGATIVE_PERCENTAGE) -> list[int]:
     rng = rng if rng is not None else np.random.default_rng()
 
     onset_offset_indices = sorted(get_onset_offset_indices(raw_track,accepted_duration))
-    negative_indices = sorted(get_negative_indices(raw_track,accepted_duration,rng=rng))
+    negative_indices = sorted(get_negative_indices(raw_track,accepted_duration,negative_percentage=negative_percentage,rng=rng))
 
     total = len(onset_offset_indices) + len(negative_indices)
     if max_examples is not None and total > max_examples:
