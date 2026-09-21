@@ -137,6 +137,7 @@ def train(
         steps_per_epoch=steps_per_epoch,
         validation_data=val_set,
         callbacks=build_callbacks(),
+        verbose=2,
     )
 
     return model
@@ -175,6 +176,7 @@ def train_curriculum_stage(
         steps_per_epoch=steps_per_epoch,
         validation_data=val_set,
         callbacks=build_callbacks(),
+        verbose=2,
     )
 
     return model
