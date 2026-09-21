@@ -11,7 +11,7 @@ from src.dataset_creation.datasets import (
     create_curriculum_training_set, create_curriculum_validation_set,
 )
 from src.constants import (
-    LOGIT_THRESHOLD, POS_WEIGHT, INITIAL_LEARNING_RATE,
+    LOGIT_THRESHOLD, POS_WEIGHT, INITIAL_LEARNING_RATE, CURRICULUM_LEARNING_RATE,
     EARLY_STOPPING_PATIENCE, LR_PLATEAU_PATIENCE, LR_PLATEAU_FACTOR,
 )
 
@@ -86,9 +86,9 @@ def weighted_bce_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
         tf.nn.weighted_cross_entropy_with_logits(labels=y_true, logits=y_pred, pos_weight=POS_WEIGHT)
     )
 
-def compile_model(model : tf.keras.Model) -> tf.keras.Model:
+def compile_model(model : tf.keras.Model, learning_rate : float = INITIAL_LEARNING_RATE) -> tf.keras.Model:
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=INITIAL_LEARNING_RATE),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
         loss=weighted_bce_loss,
         metrics=build_metrics(),
     )
@@ -155,16 +155,16 @@ def train_curriculum_stage(
 ) -> tf.keras.Model:
     """Trains one curriculum stage. Pass initial_model=<prior stage's loaded
     model> to continue training its weights (e.g. Chords continuing from a
-    saved ISOL checkpoint) rather than starting from a fresh initialization -
-    both stages use the same INITIAL_LEARNING_RATE, since the "pretrain at
-    normal LR then fine-tune at a low LR" step applies to the eventual
-    Chords -> Full transition, not between these two pretraining stages."""
+    saved ISOL checkpoint) rather than starting from a fresh initialization.
+    Each stage compiles with its own CURRICULUM_LEARNING_RATE entry (defaults
+    to INITIAL_LEARNING_RATE until tuned per stage)."""
     set_global_seed(seed)
 
     steps_per_epoch = n_train // batch_size
 
     model = initial_model if initial_model is not None else load_model(input_type, audio_duration, seed=seed)
-    compile_model(model)
+    learning_rate = CURRICULUM_LEARNING_RATE.get(stage.value, INITIAL_LEARNING_RATE)
+    compile_model(model, learning_rate=learning_rate)
 
     train_set = create_curriculum_training_set(stage, input_type, audio_duration, accepted_duration, batch_size, seed).repeat()
     val_set = create_curriculum_validation_set(stage, input_type, audio_duration, accepted_duration, batch_size, seed, n=n_val)
