@@ -193,3 +193,22 @@ def evaluate(
     test_set = create_test_set(input_type, audio_duration, accepted_duration, batch_size=batch_size, seed=seed, n=n_test)
 
     return model.evaluate(test_set, return_dict=True)
+
+def evaluate_curriculum_stages(
+    model : tf.keras.Model,
+    input_type : InputTypes,
+    audio_duration : int,
+    accepted_duration : float,
+    n_val : int,
+    batch_size : int,
+    seed : int,
+) -> dict[str, dict]:
+    """Evaluates an already-loaded model against every curriculum stage's own
+    validation set, to check whether later-stage fine-tuning regressed
+    performance on earlier stages (catastrophic forgetting)."""
+    results = {}
+    for stage in CurriculumStage:
+        val_set = create_curriculum_validation_set(stage, input_type, audio_duration, accepted_duration, batch_size, seed, n=n_val)
+        results[stage.value] = model.evaluate(val_set, return_dict=True)
+
+    return results
