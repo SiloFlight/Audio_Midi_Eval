@@ -21,7 +21,7 @@ def save_trained_model(model : tf.keras.Model, input_type : InputTypes, audio_du
 
     return path
 
-def load_trained_model(input_type : InputTypes, audio_duration : int, accepted_duration : float, stage : CurriculumStage | None = None) -> tf.keras.Model:
+def load_trained_model(input_type : InputTypes, audio_duration : int, accepted_duration : float, stage : CurriculumStage | None = None, compile : bool = True) -> tf.keras.Model:
     path = get_model_path(input_type, audio_duration, accepted_duration, stage=stage)
 
-    return tf.keras.models.load_model(path)
+    return tf.keras.models.load_model(path, compile=compile)
