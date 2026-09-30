@@ -8,7 +8,7 @@ from src.schema import CurriculumStage, InputTypes
 from src.train.models import load_model
 from src.dataset_creation.datasets import (
     create_training_set, create_validation_set, create_test_set,
-    create_curriculum_training_set, create_curriculum_validation_set,
+    create_curriculum_training_set, create_curriculum_validation_set, create_curriculum_test_set,
 )
 from src.constants import (
     LOGIT_THRESHOLD, POS_WEIGHT, INITIAL_LEARNING_RATE, CURRICULUM_LEARNING_RATE,
@@ -102,11 +102,6 @@ def set_global_seed(seed : int) -> None:
 
 def build_callbacks() -> list[tf.keras.callbacks.Callback]:
     return [
-        # restore_best_weights=True: EarlyStopping keeps an in-memory copy of the
-        # weights from whichever epoch had the best monitored score, and swaps the
-        # model back to that copy when training stops - not the last epoch's
-        # weights, which may already have regressed past the best point (as seen
-        # in the HCQT run's epoch 26-29 peak that later regressed).
         tf.keras.callbacks.EarlyStopping(monitor="val_f1_score", mode="max", patience=EARLY_STOPPING_PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ReduceLROnPlateau(monitor="val_f1_score", mode="max", patience=LR_PLATEAU_PATIENCE, factor=LR_PLATEAU_FACTOR, verbose=1),
     ]
@@ -194,6 +189,20 @@ def evaluate(
 
     return model.evaluate(test_set, return_dict=True)
 
+def evaluate_curriculum_test(
+    model : tf.keras.Model,
+    input_type : InputTypes,
+    audio_duration : int,
+    accepted_duration : float,
+    n_test : int,
+    batch_size : int,
+    seed : int,
+) -> dict:
+    """Evaluates a checkpoint against MAESTRO's test split."""
+    test_set = create_curriculum_test_set(input_type, audio_duration, accepted_duration, batch_size, seed, n=n_test)
+
+    return model.evaluate(test_set, return_dict=True)
+
 def evaluate_curriculum_stages(
     model : tf.keras.Model,
     input_type : InputTypes,
@@ -203,9 +212,6 @@ def evaluate_curriculum_stages(
     batch_size : int,
     seed : int,
 ) -> dict[str, dict]:
-    """Evaluates an already-loaded model against every curriculum stage's own
-    validation set, to check whether later-stage fine-tuning regressed
-    performance on earlier stages (catastrophic forgetting)."""
     results = {}
     for stage in CurriculumStage:
         val_set = create_curriculum_validation_set(stage, input_type, audio_duration, accepted_duration, batch_size, seed, n=n_val)

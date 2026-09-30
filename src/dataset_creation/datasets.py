@@ -63,14 +63,6 @@ def _load_track_examples(track_info : TrackInfo, track_seed : int, input_type : 
     return [(feature_fn(context, index, audio_duration), label) for index, label in zip(indices, labels)]
 
 def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, input_dims, seed : int, negative_percentage : float, max_examples_per_track : int):
-    # ThreadPoolExecutor.map submits every track's work immediately, even
-    # though only TRACK_LOAD_WORKERS run at a time - the rest just queue up.
-    # tf.data routinely closes this generator early (GeneratorExit, e.g. once
-    # the shuffle buffer has enough), and a plain `with ThreadPoolExecutor()`
-    # block's default cleanup (shutdown(wait=True)) would then block until
-    # every already-queued track finishes, even though none of it is wanted
-    # anymore. cancel_futures drops the unstarted backlog instead of draining
-    # it; only the handful of tasks already running have to finish.
     pool = ThreadPoolExecutor(max_workers=TRACK_LOAD_WORKERS)
     try:
         futures = pool.map(
@@ -83,8 +75,6 @@ def _example_generator(track_infos : list[TrackInfo], input_type : InputTypes, a
         pool.shutdown(wait=False, cancel_futures=True)
 
 def _build_base_dataset(track_infos : list[TrackInfo], input_type : InputTypes, audio_duration : int, accepted_duration : float, seed : int, negative_percentage : float = NEGATIVE_PERCENTAGE, max_track_duration : float = MAX_TRACK_DURATION, max_examples_per_track : int = MAX_EXAMPLES_PER_TRACK) -> tf.data.Dataset:
-    # Filtered on track_info.duration (already known from the index) rather than
-    # inside _example_generator, so excluded tracks are never loaded from disk at all.
     track_infos = [t for t in track_infos if t.duration <= max_track_duration]
     shuffled_tracks = random.Random(seed).sample(track_infos, len(track_infos))
 
@@ -115,10 +105,6 @@ def create_validation_set(input_type : InputTypes, audio_duration : int, accepte
 
     dataset = _build_base_dataset(val_tracks, input_type, audio_duration, accepted_duration, seed)
 
-    # .cache() freezes whichever n examples the first pass produces (including the
-    # shuffle order) in memory, so every subsequent epoch re-reads the exact same
-    # set instead of re-running the generator/shuffle (which would otherwise draw
-    # different examples each time, per tf.data's reshuffle_each_iteration default).
     return dataset.take(n).cache().batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 def create_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int = -1) -> tf.data.Dataset:
@@ -130,18 +116,9 @@ def create_test_set(input_type : InputTypes, audio_duration : int, accepted_dura
 
 def _maps_subset(track_name : str) -> str:
     parts = track_name.split("_")
-    # MUS filenames embed the piece name onto the subset code with a hyphen
-    # (e.g. "MUS-schub", "MUS-bk") rather than as a separate "_"-delimited
-    # field like ISOL/RAND/UCHO - normalize those back to a plain "MUS".
     return "MUS" if parts[1].startswith("MUS") else parts[1]
 
 def split_stage_tracks(stage : CurriculumStage) -> tuple[list[TrackInfo], list[TrackInfo]]:
-    """Returns (train_tracks, val_tracks) for one curriculum stage. ISOL/Chords
-    are split via a fixed random split (CURRICULUM_SPLIT_SEED, independent of
-    the caller's training seed, so the split itself never moves). Full instead
-    reuses MAESTRO's own native train/validation split, with MAPS MUS tracks
-    folded entirely into train - only ~270 tracks, too few to usefully carve a
-    separate held-out slice from on top of MAESTRO's own validation set."""
     if stage == CurriculumStage.FULL:
         maestro_tracks = get_maestro_track_index()
         mus_tracks = [t for t in get_maps_track_index() if _maps_subset(t.track_name) == "MUS"]
@@ -181,5 +158,16 @@ def create_curriculum_validation_set(stage : CurriculumStage, input_type : Input
     _, val_tracks = split_stage_tracks(stage)
 
     dataset = _build_base_dataset(val_tracks, input_type, audio_duration, accepted_duration, seed, **_curriculum_overrides(stage))
+
+    return dataset.take(n).cache().batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+def create_curriculum_test_set(input_type : InputTypes, audio_duration : int, accepted_duration : float, batch_size : int, seed : int, n : int) -> tf.data.Dataset:
+    test_tracks = [t for t in get_maestro_track_index() if t.track_desc == "test"]
+
+    dataset = _build_base_dataset(
+        test_tracks, input_type, audio_duration, accepted_duration, seed,
+        max_track_duration=CURRICULUM_MAX_TRACK_DURATION["Full"],
+        max_examples_per_track=CURRICULUM_MAX_EXAMPLES_PER_TRACK["Full"],
+    )
 
     return dataset.take(n).cache().batch(batch_size).prefetch(tf.data.AUTOTUNE)
