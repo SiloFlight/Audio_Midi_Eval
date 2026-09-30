@@ -14,8 +14,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-s", "--stage",
         required=True,
-        choices=[CurriculumStage.FULL.value],
-        help="Checkpoint stage to load. Only Full has a genuine held-out test split today.",
+        choices=[s.value for s in CurriculumStage],
+        help="Checkpoint stage to load.",
     )
     parser.add_argument(
         "-i", "--input-type",
